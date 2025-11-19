@@ -1,0 +1,49 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_validate
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+
+df = pd.read_csv("./processed.cleveland.data", header=None)
+
+cols = ["age", "sex", "cp", "trestbps", "chol", "fbs", "restecg", "thalach",
+        "exang", "oldpeak", "slope", "ca", "thal", "num"]
+df.columns = cols
+
+df["target"] = (df["num"] > 0).astype(int)
+X = df.drop(columns=["num", "target"])
+y = df["target"]
+
+num_cols = ["age", "trestbps", "chol", "thalach", "oldpeak"]
+bin_cols = ["sex", "fbs", "exang"]
+cat_cols = ["cp", "restecg", "slope", "ca", "thal"]
+
+preprocess = ColumnTransformer([
+    ("num", Pipeline([("impute", SimpleImputer(strategy="median")),
+                      ("scale", StandardScaler())]), num_cols),
+    ("bin", SimpleImputer(strategy="most_frequent"), bin_cols),
+    ("cat", Pipeline([("impute", SimpleImputer(strategy="most_frequent")),
+                      ("onehot", OneHotEncoder(handle_unknown="ignore"))]), cat_cols)
+], remainder="drop")
+
+log_reg = LogisticRegression(max_iter=200, class_weight="balanced")
+pipe = Pipeline([("prep", preprocess), ("model", log_reg)])
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+cv = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+scores = cross_validate(pipe, X_train, y_train, cv=cv,
+                        scoring=["accuracy", "precision", "recall", "f1", "roc_auc"])
+
+
+metrics = {k.replace("test_", "").upper(): np.mean(v) for k, v in scores.items() if "test" in k}
+
+print("\nModel Evaluation Results:")
+for metric, value in metrics.items():
+    print(f"{metric:10s}: {value:.2f}")
+
